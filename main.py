@@ -1,55 +1,47 @@
+from tqdm import tqdm
 import requests
-import os
-import json
 import token_1
 from datetime import datetime
+import json
 
 
 class VkDownloader:
-    
-    def __init__(self, vk_token, version='5.131'):
+    def __init__(self, version='5.131'):
         self.params = {
-            'access_token': vk_token,
+            'access_token': token_1.TOKEN_VK,
             'v': version
         }
 
     def get_photos(self, user_id=None, count=20):
         url = 'https://api.vk.com/method/photos.get'
         params = {
-        'album_id': 'profile',
-        'owner_id': user_id,
-        'extended': '1',
-        'count': count,
+            'album_id': 'profile',
+            'owner_id': user_id,
+            'extended': '1',
+            'count': count,
         }
         res = requests.get(url, params={**self.params, **params}).json()
         return res
 
     def get_all_photos(self):
         data = self.get_photos()
-        i = 0
-        photos = []  # Список всех загруженных фото
-        likes_count = {}  # Словарь с парой название фото - URL фото максимального разрешения
+        photos = {}  # Словарь с парами: название фото - URL фото максимального разрешения
 
-        for i in data['response']['items']:
-            if i['likes']['count'] not in likes_count:
-                likes_count[i['likes']['count']] = 1
-            else:
-                likes_count[i['likes']['count']] += 1
         for item_ph in data['response']['items']:
-            max_sized = max(item_ph['sizes'], key=(lambda x: x['height']))
-            if likes_count[item_ph['likes']['count']] == 1:
-                name = str(item_ph['likes']['count']) + '.jpg'
-            else:
-                name = f"{item_ph['likes']['count']}" \
-                       f"({datetime.utcfromtimestamp(item_ph['date']).strftime('%d%m%Y-%H%M%S')}).jpg"
-            photos.append({'name': name, 'size': max_sized['type'], 'url': max_sized['url']})
+            likes_count = item_ph['likes']['count']
+            name = str(likes_count) if likes_count not in photos else f"{likes_count}_{datetime.utcfromtimestamp(item_ph['date']).strftime('%d%m%Y-%H%M%S')}"
+            max_sized = max(item_ph['sizes'], key=lambda x: x['height'] * x['width'])
+            photos[name] = {'size': max_sized['type'], 'url': max_sized['url']}
+
         return photos
-        
+
+
 class YaUploader:
     host = 'https://cloud-api.yandex.net:443/'
+
     def __init__(self, token: str):
         self.token = token
-        
+
     def get_headers(self):
         return {'Content-Type': 'application/json', 'Authorization': f'OAuth {self.token}'}
 
@@ -65,21 +57,31 @@ class YaUploader:
         params = {'path': f'/{folder_name}/{file_name}', 'url': file_url}
         response = requests.post(url, headers=self.get_headers(), params=params)
         if response.status_code == 202:
-            print(f" Загрузка файла '{file_name}' прошла успешно")
+            print(f"Загрузка файла '{file_name}' прошла успешно")
+
+    def upload_photos_to_yandex_disk(self, photos_dict, folder_name):
+        count = 0
+        json_data = []  # Список для формирования JSON
+        for name, photo in tqdm(photos_dict.items(), desc='Загрузка фотографий'):
+            self.upload_from_url(photo['url'], name + '.jpg', folder_name)
+            count += 1
+            json_data.append({'name': name, 'size': photo['size'], 'url': photo['url']})  # Добавляем данные в список
+
+        # Сохранение списка в файл JSON
+        json_filename = f'{folder_name}_photos.json'
+        with open(json_filename, 'w') as json_file:
+            json.dump(json_data, json_file, indent=4)
+        print(f'Список фотографий сохранен в файле: {json_filename}')
+
 
 if __name__ == '__main__':
-    vk_token = token_1.TOKEN_VK
-    user_id = str(input('Введите id пользователя: '))
-    downloader = VkDownloader(vk_token)
+    user_id = input('Введите id пользователя: ')
+    downloader = VkDownloader()
     downloader.get_all_photos()
-    
-    ya_token = token_1.TOKEN_YA
+
+    ya_token = input('Введите Яндекс Диск: ')
     uploader = YaUploader(ya_token)
-    folder_name = str(input('Введите имя папки на Яндекс диске, в которую необходимо сохранить фото: '))
+    folder_name = input('Введите имя папки на Яндекс диске, в которую необходимо сохранить фото: ')
     uploader.create_folder(folder_name)
-    count = 0
-    photos_list = downloader.get_all_photos()
-    for photo in photos_list:
-        uploader.upload_from_url(photo['url'], photo['name'], folder_name)
-        count += 1
-        print(f'Фотографий загружено на Яндекс диск: {count}')
+    photos_dict = downloader.get_all_photos()
+    uploader.upload_photos_to_yandex_disk(photos_dict, folder_name)

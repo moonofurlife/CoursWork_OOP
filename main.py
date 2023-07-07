@@ -6,17 +6,18 @@ import json
 
 
 class VkDownloader:
-    def __init__(self, version='5.131'):
+    def __init__(self, user_id, version='5.131'):
+        self.user_id = user_id
         self.params = {
             'access_token': token_1.TOKEN_VK,
             'v': version
         }
 
-    def get_photos(self, user_id=None, count=20):
+    def get_photos(self, count=20):
         url = 'https://api.vk.com/method/photos.get'
         params = {
             'album_id': 'profile',
-            'owner_id': user_id,
+            'owner_id': self.user_id,
             'extended': '1',
             'count': count,
         }
@@ -28,8 +29,12 @@ class VkDownloader:
         photos = {}  # Словарь с парами: название фото - URL фото максимального разрешения
 
         for item_ph in data['response']['items']:
-            likes_count = item_ph['likes']['count']
-            name = str(likes_count) if likes_count not in photos else f"{likes_count}_{datetime.utcfromtimestamp(item_ph['date']).strftime('%d%m%Y-%H%M%S')}"
+            likes_count = str(item_ph['likes']['count'])
+            if likes_count in photos:
+                date_str = datetime.utcfromtimestamp(item_ph['date']).strftime('%d%m%Y-%H%M%S')
+                name = f"{likes_count}_{date_str}"
+            else:
+                name = likes_count
             max_sized = max(item_ph['sizes'], key=lambda x: x['height'] * x['width'])
             photos[name] = {'size': max_sized['type'], 'url': max_sized['url']}
 
@@ -65,7 +70,7 @@ class YaUploader:
         for name, photo in tqdm(photos_dict.items(), desc='Загрузка фотографий'):
             self.upload_from_url(photo['url'], name + '.jpg', folder_name)
             count += 1
-            json_data.append({'name': name, 'size': photo['size'], 'url': photo['url']})  # Добавляем данные в список
+            json_data.append({'name': name, 'size': photo['size']})  # Добавляем данные в список
 
         # Сохранение списка в файл JSON
         json_filename = f'{folder_name}_photos.json'
@@ -76,8 +81,7 @@ class YaUploader:
 
 if __name__ == '__main__':
     user_id = input('Введите id пользователя: ')
-    downloader = VkDownloader()
-    downloader.get_all_photos()
+    downloader = VkDownloader(user_id)
 
     ya_token = input('Введите Яндекс Диск: ')
     uploader = YaUploader(ya_token)
